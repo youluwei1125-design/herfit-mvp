@@ -8,7 +8,18 @@ import {
   SCIENCE_NOTE_SYSTEM_PROMPT,
   WEEKLY_PLAN_SYSTEM_PROMPT,
 } from './prompts';
-import type { CyclePhase, DailyWorkout, EnergyLevel, Exercise, Scene, UserProfile, WeeklyPlan, WorkoutLog } from './types';
+import type {
+  CycleContext,
+  CyclePhase,
+  DailyWorkout,
+  EnergyLevel,
+  Exercise,
+  Scene,
+  UserProfile,
+  UserSettings,
+  WeeklyPlan,
+  WorkoutLog,
+} from './types';
 
 interface ChatResponse {
   text: string;
@@ -23,6 +34,7 @@ interface ScienceNoteResponse {
 type TodayPlanResponse = Partial<DailyWorkout> | Partial<WeeklyPlan>;
 
 const RETRY_COUNT = 1;
+const CLAUDE_REQUEST_TIMEOUT_MS = 15_000;
 const isDev = process.env.NODE_ENV !== 'production';
 const HIGH_IMPACT_PATTERN = /波比|burpee|深蹲跳|开合跳|跳跃弓步|跳跃|jump/i;
 
@@ -178,17 +190,21 @@ async function retry<T>(operation: () => Promise<T>, retries = RETRY_COUNT): Pro
 }
 
 async function callClaude(systemPrompt: string, userPrompt: string, temperature = 0.4): Promise<string> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), CLAUDE_REQUEST_TIMEOUT_MS);
+
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
+    signal: controller.signal,
     body: JSON.stringify({
       systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
       temperature,
     }),
-  });
+  }).finally(() => window.clearTimeout(timeoutId));
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
@@ -233,7 +249,7 @@ function parseDuration(duration: number | string | undefined, fallback: number) 
 }
 
 function clampDuration(minutes: number) {
-  return Math.min(35, Math.max(20, Math.round(minutes)));
+  return Math.min(35, Math.max(8, Math.round(minutes)));
 }
 
 function shortenText(text: string, maxLength: number) {
@@ -317,6 +333,7 @@ function validateWorkoutPlan(workout: DailyWorkout): { valid: boolean; reasons: 
   if (!workout.scienceNote && !workout.nutritionTip) reasons.push('missing subtitle/scienceNote/nutritionTip');
   if (!workout.estimatedMinutes || workout.estimatedMinutes <= 0) reasons.push('missing duration/estimatedMinutes');
   if (!Array.isArray(workout.exercises)) reasons.push('exercises is not an array');
+  if (Array.isArray(workout.exercises) && workout.exercises.length === 0) reasons.push('exercises is empty');
 
   workout.exercises.forEach((exercise, index) => {
     if (!exercise.name) reasons.push(`exercise[${index}] missing name`);
@@ -330,17 +347,56 @@ function validateWorkoutPlan(workout: DailyWorkout): { valid: boolean; reasons: 
   };
 }
 
-function fallbackPlan(cycleInfo: CycleInfo, reason: unknown) {
+function validateWorkoutMatchesInputs(workout: DailyWorkout, cycleInfo: CycleInfo, energyLevel: EnergyLevel) {
+  const reasons: string[] = [];
+  const theme = workout.theme;
+
+  if (workout.energyLevel !== energyLevel) {
+    reasons.push(`energyLevel mismatch: expected ${energyLevel}, got ${workout.energyLevel}`);
+  }
+
+  if (/上肢推拉\s*\+\s*核心稳定|上肢推\s*\+\s*核心/.test(theme)) {
+    reasons.push('theme is stale generic cached title');
+  }
+
+  if (cycleInfo.phase === 'menstrual' && energyLevel === 'high') {
+    if (workout.estimatedMinutes < 15 || workout.exercises.length === 0 || !/(轻量|活动|低冲击|唤醒)/.test(theme)) {
+      reasons.push('menstrual high plan should be light activity with low-impact exercises');
+    }
+  }
+
+  if (cycleInfo.phase === 'follicular' && energyLevel === 'medium' && !/(全身|基础|力量|激活)/.test(theme)) {
+    reasons.push('follicular medium plan should focus on full-body activation or basic strength');
+  }
+
+  if (cycleInfo.phase === 'ovulation' && !/(稳定|控制|中等|力量|核心)/.test(theme)) {
+    reasons.push('ovulation plan should focus on stability, control, or medium strength');
+  }
+
+  if (cycleInfo.phase === 'luteal' && !/(低冲击|稳态|舒缓|控制|力量)/.test(theme)) {
+    reasons.push('luteal plan should focus on low-impact or steady strength');
+  }
+
+  return {
+    valid: reasons.length === 0,
+    reasons,
+  };
+}
+
+function fallbackPlan(cycleInfo: CycleInfo, reason: unknown, energyLevel: EnergyLevel = 'medium', settings?: UserSettings) {
   logDevError('Using default workout fallback:', reason);
-  return createDefaultWeeklyPlan(cycleInfo, new Date().toISOString().slice(0, 10));
+  return createDefaultWeeklyPlan(cycleInfo, new Date().toISOString().slice(0, 10), energyLevel, settings?.trainingPreference ?? 'standard');
 }
 
 export async function generateWeeklyPlan(
   profile: UserProfile,
   cycleInfo: CycleInfo,
   previousLogs: WorkoutLog[],
+  cycleContext?: CycleContext,
+  settings?: UserSettings,
+  energyLevel: EnergyLevel = 'medium',
 ): Promise<WeeklyPlan> {
-  const userPrompt = buildWeeklyPlanUserPrompt(profile, cycleInfo, previousLogs);
+  const userPrompt = buildWeeklyPlanUserPrompt(profile, cycleInfo, previousLogs, cycleContext, settings, energyLevel);
 
   try {
     return await retry(async () => {
@@ -363,7 +419,13 @@ export async function generateWeeklyPlan(
 
         if (!validation.valid) {
           logDevError('validateWorkoutPlan failed:', validation.reasons);
-          return fallbackPlan(cycleInfo, validation.reasons);
+          return fallbackPlan(cycleInfo, validation.reasons, energyLevel, settings);
+        }
+
+        const inputValidation = validateWorkoutMatchesInputs(workout, cycleInfo, energyLevel);
+        if (!inputValidation.valid) {
+          logDevError('validateWorkoutMatchesInputs failed:', inputValidation.reasons);
+          return fallbackPlan(cycleInfo, inputValidation.reasons, energyLevel, settings);
         }
 
         return plan;
@@ -374,13 +436,19 @@ export async function generateWeeklyPlan(
 
       if (!validation.valid) {
         logDevError('validateWorkoutPlan failed:', validation.reasons);
-        return fallbackPlan(cycleInfo, validation.reasons);
+        return fallbackPlan(cycleInfo, validation.reasons, energyLevel, settings);
+      }
+
+      const inputValidation = validateWorkoutMatchesInputs(workout, cycleInfo, energyLevel);
+      if (!inputValidation.valid) {
+        logDevError('validateWorkoutMatchesInputs failed:', inputValidation.reasons);
+        return fallbackPlan(cycleInfo, inputValidation.reasons, energyLevel, settings);
       }
 
       return wrapDailyWorkoutAsPlan(workout);
     });
   } catch (error) {
-    return fallbackPlan(cycleInfo, error);
+    return fallbackPlan(cycleInfo, error, energyLevel, settings);
   }
 }
 

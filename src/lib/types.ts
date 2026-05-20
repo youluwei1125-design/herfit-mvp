@@ -41,10 +41,11 @@ export type VideoPlatform = 'bilibili' | 'xiaohongshu' | 'youtube';
 export type TrainingPreference = 'light' | 'standard' | 'challenge';
 
 export interface UserSettings {
-  lastPeriodStart: string;
-  avgCycleLength: number;
-  avgPeriodLength: number;
+  lastPeriodStartDate: string;
+  cycleLength: number;
+  periodLength: number;
   trainingPreference: TrainingPreference;
+  onboardingCompleted: boolean;
 }
 
 export interface CycleContext {
@@ -52,6 +53,8 @@ export interface CycleContext {
   cycleDay: number;
   phaseDay: number;
   daysToNextPeriod: number;
+  cycleLength: number;
+  periodLength: number;
 }
 
 // 单个动作

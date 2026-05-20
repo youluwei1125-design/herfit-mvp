@@ -1,5 +1,5 @@
 import type { CycleInfo } from './cycle';
-import type { CyclePhase, DailyWorkout, EnergyLevel, Scene, UserProfile, WorkoutLog } from './types';
+import type { CycleContext, CyclePhase, DailyWorkout, EnergyLevel, Scene, UserProfile, UserSettings, WorkoutLog } from './types';
 
 const JSON_ONLY_INSTRUCTION = [
   '你必须仅返回有效的 JSON。',
@@ -124,8 +124,22 @@ function formatRecentLogs(logs: WorkoutLog[]) {
     .join('\n');
 }
 
-export function buildWeeklyPlanUserPrompt(profile: UserProfile, cycleInfo: CycleInfo, previousLogs: WorkoutLog[]) {
+export function buildWeeklyPlanUserPrompt(
+  profile: UserProfile,
+  cycleInfo: CycleInfo,
+  previousLogs: WorkoutLog[],
+  cycleContext?: CycleContext,
+  settings?: UserSettings,
+  energyLevel: EnergyLevel = 'medium',
+) {
   const today = getTodayISO();
+  const currentPhase = cycleContext?.currentPhase ?? cycleInfo.phase;
+  const cycleDay = cycleContext?.cycleDay ?? cycleInfo.dayInCycle;
+  const phaseDay = cycleContext?.phaseDay ?? 1;
+  const cycleLength = cycleContext?.cycleLength ?? settings?.cycleLength ?? profile.cycle.avgCycleLength;
+  const periodLength = cycleContext?.periodLength ?? settings?.periodLength ?? profile.cycle.avgPeriodLength;
+  const trainingPreference = settings?.trainingPreference ?? 'standard';
+  const daysToNextPeriod = cycleContext?.daysToNextPeriod ?? cycleInfo.daysUntilNextPhase;
 
   return `
 请只为我生成今天 1 天的训练计划，不要生成周计划，不要生成 7 天计划。
@@ -140,8 +154,16 @@ export function buildWeeklyPlanUserPrompt(profile: UserProfile, cycleInfo: Cycle
 - 不喜欢的训练类型：${formatList(profile.preferences.disliked)}
 
 生理周期信息：
-- 今天是周期第${cycleInfo.dayInCycle}天
-- 当前阶段：${cycleInfo.phase}（menstrual/follicular/ovulation/luteal）
+- currentPhase：${currentPhase}（menstrual/follicular/ovulation/luteal）
+- cycleDay：${cycleDay}
+- phaseDay：${phaseDay}
+- daysToNextPeriod：${daysToNextPeriod}
+- periodLength：${periodLength}
+- cycleLength：${cycleLength}
+- trainingPreference：${trainingPreference}（light/standard/challenge）
+- energyLevel：${energyLevel}（high=精力充沛 / medium=一般 / low=很累）
+
+以上周期信息已经由前端 getCycleContext 计算完成。你不允许重新推断周期，不允许修改 currentPhase、cycleDay、phaseDay、daysToNextPeriod、periodLength 或 cycleLength。
 
 历史反馈（最近7次训练）：
 ${formatRecentLogs(previousLogs)}
@@ -152,11 +174,11 @@ ${formatRecentLogs(previousLogs)}
 返回以下 JSON 格式：
 {
   "date": "${today}",
-  "cyclePhase": "${cycleInfo.phase}",
-  "cycleDay": ${cycleInfo.dayInCycle},
+  "cyclePhase": "${currentPhase}",
+  "cycleDay": ${cycleDay},
   "scene": "home",
-  "energyLevel": "medium",
-  "theme": "上肢推+核心",
+  "energyLevel": "${energyLevel}",
+  "theme": "根据周期和状态生成具体主题，不要固定为上肢推拉或核心稳定",
   "exercises": [
     {
       "id": "exercise_001",
@@ -182,7 +204,7 @@ ${formatRecentLogs(previousLogs)}
 2. 休息日 exercises 为空数组，theme 写成"休息恢复"或"生理期舒缓"
 3. 月经期前3天必须设为休息日或仅安排瑜伽/冥想
 4. videoKeywords 要具体、适合在B站搜索
-5. estimatedMinutes 必须在20到35之间
+5. estimatedMinutes 必须匹配 energyLevel 和 trainingPreference：low 通常 8-20 分钟，medium 通常 20-30 分钟，high 通常 25-35 分钟；月经期前3天可低至8-15分钟
 6. scienceNote 控制在30-60字，短一点，直接说明为什么这样练
 7. nutritionTip 控制在30字以内
 8. 如果当前阶段是 ovulation，默认不要出现波比跳、深蹲跳、开合跳、跳跃弓步等高冲击动作

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { saveProfile } from '@/lib/storage';
+import { saveProfile, saveUserSettings } from '@/lib/storage';
 import type { UserProfile } from '@/lib/types';
 
 type Goal = UserProfile['goal'];
@@ -16,8 +16,9 @@ interface FormState {
   weight: number;
   weeklyDays: number;
   sessionMinutes: number;
-  lastPeriodStart: string;
-  avgCycleLength: number;
+  lastPeriodStartDate: string;
+  cycleLength: number;
+  periodLength: number;
   status: Status | '';
 }
 
@@ -44,7 +45,10 @@ const statusOptions: Array<{ value: Status; title: string; description: string; 
 
 function getTodayISO() {
   const today = new Date();
-  return today.toISOString().slice(0, 10);
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function createInitialState(): FormState {
@@ -55,8 +59,9 @@ function createInitialState(): FormState {
     weight: 55,
     weeklyDays: 3,
     sessionMinutes: 30,
-    lastPeriodStart: getTodayISO(),
-    avgCycleLength: 28,
+    lastPeriodStartDate: getTodayISO(),
+    cycleLength: 28,
+    periodLength: 5,
     status: '',
   };
 }
@@ -106,7 +111,7 @@ export default function OnboardingPage() {
     if (step === 2) return Boolean(form.goal);
     if (step === 3) return Boolean(form.level);
     if (step === 4) return form.height > 0 && form.weight > 0 && form.weeklyDays >= 3 && form.sessionMinutes > 0;
-    if (step === 5) return Boolean(form.lastPeriodStart) && form.avgCycleLength > 0;
+    if (step === 5) return Boolean(form.lastPeriodStartDate) && form.cycleLength > 0 && form.periodLength > 0;
     if (step === 6) return form.status === 'normal';
     return true;
   }, [form, step]);
@@ -150,9 +155,9 @@ export default function OnboardingPage() {
         disliked: [],
       },
       cycle: {
-        lastPeriodStart: form.lastPeriodStart,
-        avgCycleLength: form.avgCycleLength,
-        avgPeriodLength: 5,
+        lastPeriodStart: form.lastPeriodStartDate,
+        avgCycleLength: form.cycleLength,
+        avgPeriodLength: form.periodLength,
       },
       status: form.status,
       createdAt: now,
@@ -160,6 +165,13 @@ export default function OnboardingPage() {
     };
 
     saveProfile(profile);
+    saveUserSettings({
+      lastPeriodStartDate: form.lastPeriodStartDate,
+      cycleLength: form.cycleLength,
+      periodLength: form.periodLength,
+      trainingPreference: 'standard',
+      onboardingCompleted: true,
+    });
     router.replace('/');
   };
 
@@ -303,22 +315,37 @@ export default function OnboardingPage() {
               <span className="text-sm font-medium text-gray-600">上次月经开始日期</span>
               <input
                 type="date"
-                value={form.lastPeriodStart}
-                onChange={(event) => updateForm('lastPeriodStart', event.target.value)}
+                value={form.lastPeriodStartDate}
+                onChange={(event) => updateForm('lastPeriodStartDate', event.target.value)}
+                onInput={(event) => updateForm('lastPeriodStartDate', event.currentTarget.value)}
                 className="mt-2 min-h-12 w-full rounded-button border border-gray-200 px-3 text-base outline-none focus:border-herfit-primary"
               />
             </label>
             <label className="block rounded-card border border-purple-100 bg-white p-4 shadow-sm">
               <span className="flex items-center justify-between text-sm font-medium text-gray-600">
                 <span>平均周期天数</span>
-                <span className="text-herfit-primaryDark">{form.avgCycleLength} 天</span>
+                <span className="text-herfit-primaryDark">{form.cycleLength} 天</span>
               </span>
               <input
                 type="range"
                 min="21"
                 max="40"
-                value={form.avgCycleLength}
-                onChange={(event) => updateForm('avgCycleLength', Number(event.target.value))}
+                value={form.cycleLength}
+                onChange={(event) => updateForm('cycleLength', Number(event.target.value))}
+                className="mt-4 w-full accent-herfit-primary"
+              />
+            </label>
+            <label className="block rounded-card border border-purple-100 bg-white p-4 shadow-sm">
+              <span className="flex items-center justify-between text-sm font-medium text-gray-600">
+                <span>平均经期持续天数</span>
+                <span className="text-herfit-primaryDark">{form.periodLength} 天</span>
+              </span>
+              <input
+                type="range"
+                min="3"
+                max="8"
+                value={form.periodLength}
+                onChange={(event) => updateForm('periodLength', Number(event.target.value))}
                 className="mt-4 w-full accent-herfit-primary"
               />
             </label>

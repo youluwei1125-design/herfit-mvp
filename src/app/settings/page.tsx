@@ -35,9 +35,9 @@ export default function SettingsPage() {
       saveProfile({
         ...profile,
         cycle: {
-          lastPeriodStart: settings.lastPeriodStart,
-          avgCycleLength: settings.avgCycleLength,
-          avgPeriodLength: settings.avgPeriodLength,
+          lastPeriodStart: settings.lastPeriodStartDate,
+          avgCycleLength: settings.cycleLength,
+          avgPeriodLength: settings.periodLength,
         },
       });
     }
@@ -57,8 +57,9 @@ export default function SettingsPage() {
           <span className="text-sm font-semibold text-gray-700">最近一次月经开始日期</span>
           <input
             type="date"
-            value={settings.lastPeriodStart}
-            onChange={(event) => update('lastPeriodStart', event.target.value)}
+            value={settings.lastPeriodStartDate}
+            onChange={(event) => update('lastPeriodStartDate', event.target.value)}
+            onInput={(event) => update('lastPeriodStartDate', event.currentTarget.value)}
             className="mt-2 min-h-12 w-full rounded-button border border-purple-100 px-3 outline-none focus:border-herfit-primary"
           />
         </label>
@@ -66,14 +67,14 @@ export default function SettingsPage() {
         <label className="block">
           <span className="flex items-center justify-between text-sm font-semibold text-gray-700">
             <span>平均周期长度</span>
-            <span className="text-herfit-primaryDark">{settings.avgCycleLength}天</span>
+            <span className="text-herfit-primaryDark">{settings.cycleLength}天</span>
           </span>
           <input
             type="range"
             min="21"
             max="40"
-            value={settings.avgCycleLength}
-            onChange={(event) => update('avgCycleLength', Number(event.target.value))}
+            value={settings.cycleLength}
+            onChange={(event) => update('cycleLength', Number(event.target.value))}
             className="mt-3 w-full accent-herfit-primary"
           />
         </label>
@@ -81,14 +82,14 @@ export default function SettingsPage() {
         <label className="block">
           <span className="flex items-center justify-between text-sm font-semibold text-gray-700">
             <span>平均经期长度</span>
-            <span className="text-herfit-primaryDark">{settings.avgPeriodLength}天</span>
+            <span className="text-herfit-primaryDark">{settings.periodLength}天</span>
           </span>
           <input
             type="range"
             min="3"
             max="8"
-            value={settings.avgPeriodLength}
-            onChange={(event) => update('avgPeriodLength', Number(event.target.value))}
+            value={settings.periodLength}
+            onChange={(event) => update('periodLength', Number(event.target.value))}
             className="mt-3 w-full accent-herfit-primary"
           />
         </label>

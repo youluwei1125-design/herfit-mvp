@@ -14,8 +14,6 @@ interface PhaseTrainingMeta {
   description: string;
 }
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
 function parseLocalDate(date: string) {
   const [year, month, day] = date.split('-').map(Number);
   return new Date(year, month - 1, day);
@@ -32,7 +30,9 @@ function getTodayISO() {
 function getDaysBetween(startDate: string, endDate: string) {
   const start = parseLocalDate(startDate);
   const end = parseLocalDate(endDate);
-  return Math.floor((end.getTime() - start.getTime()) / MS_PER_DAY);
+  const startUTC = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
+  const endUTC = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate());
+  return Math.round((endUTC - startUTC) / (24 * 60 * 60 * 1000));
 }
 
 function getPhaseByDay(dayInCycle: number, avgPeriodLength: number): CyclePhase {
@@ -108,18 +108,38 @@ export function getCurrentCyclePhase(
 }
 
 export function getCycleContext(settings: UserSettings, today: string = getTodayISO()): CycleContext {
-  const info = getCurrentCyclePhase(
-    settings.lastPeriodStart,
-    settings.avgCycleLength,
-    settings.avgPeriodLength,
-    today,
-  );
+  const cycleLength = Math.max(1, Number(settings.cycleLength) || 28);
+  const periodLength = Math.min(Math.max(1, Number(settings.periodLength) || 5), cycleLength);
+  const lastPeriodStartDate = settings.lastPeriodStartDate;
+  const rawDaysSinceStart = getDaysBetween(lastPeriodStartDate, today);
+  const daysSinceStart = Math.max(0, rawDaysSinceStart);
+  const normalizedDayIndex = ((daysSinceStart % cycleLength) + cycleLength) % cycleLength;
+  const cycleDay = normalizedDayIndex + 1;
+  const currentPhase = getPhaseByDay(cycleDay, periodLength);
+  const phaseDay = Math.max(1, getPhaseDay(currentPhase, cycleDay, periodLength));
+  const daysToNextPeriod = cycleLength - cycleDay + 1;
+
+  if (process.env.NODE_ENV === 'development') {
+    if (rawDaysSinceStart < 0) {
+      console.warn('HerFit cycle settings warning: lastPeriodStartDate is in the future, clamped to cycle day 1.');
+    }
+
+    console.log('HerFit cycle calculation:', {
+      parsedSettings: settings,
+      today,
+      lastPeriodStartDate,
+      calculatedCycleDay: cycleDay,
+      calculatedCurrentPhase: currentPhase,
+    });
+  }
 
   return {
-    currentPhase: info.phase,
-    cycleDay: info.dayInCycle,
-    phaseDay: Math.max(1, getPhaseDay(info.phase, info.dayInCycle, settings.avgPeriodLength)),
-    daysToNextPeriod: Math.max(0, settings.avgCycleLength - info.dayInCycle + 1),
+    currentPhase,
+    cycleDay,
+    phaseDay,
+    daysToNextPeriod,
+    cycleLength,
+    periodLength,
   };
 }
 
@@ -133,11 +153,16 @@ export function getCurrentCyclePhaseFromContext(context: CycleContext): CycleInf
 }
 
 export function getCyclePhaseRanges(settings: UserSettings) {
-  const start = new Date(`${settings.lastPeriodStart}T00:00:00`);
+  const start = parseLocalDate(settings.lastPeriodStartDate);
+  const cycleLength = Math.max(1, Number(settings.cycleLength) || 28);
+  const periodLength = Math.min(Math.max(1, Number(settings.periodLength) || 5), cycleLength);
   const addDays = (days: number) => {
     const date = new Date(start);
     date.setDate(start.getDate() + days);
-    return date.toISOString().slice(0, 10);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   };
 
   return [
@@ -145,12 +170,12 @@ export function getCyclePhaseRanges(settings: UserSettings) {
       phase: 'menstrual' as const,
       label: '经期',
       start: addDays(0),
-      end: addDays(settings.avgPeriodLength - 1),
+      end: addDays(periodLength - 1),
     },
     {
       phase: 'follicular' as const,
       label: '卵泡期',
-      start: addDays(settings.avgPeriodLength),
+      start: addDays(periodLength),
       end: addDays(12),
     },
     {
@@ -163,9 +188,28 @@ export function getCyclePhaseRanges(settings: UserSettings) {
       phase: 'luteal' as const,
       label: '黄体期',
       start: addDays(16),
-      end: addDays(settings.avgCycleLength - 1),
+      end: addDays(cycleLength - 1),
     },
   ];
+}
+
+/* Legacy compatibility helpers use the same calendar-day calculation above. */
+export function getCycleContextFromLegacy(settings: UserSettings, today: string = getTodayISO()): CycleContext {
+  const info = getCurrentCyclePhase(
+    settings.lastPeriodStartDate,
+    settings.cycleLength,
+    settings.periodLength,
+    today,
+  );
+
+  return {
+    currentPhase: info.phase,
+    cycleDay: info.dayInCycle,
+    phaseDay: Math.max(1, getPhaseDay(info.phase, info.dayInCycle, settings.periodLength)),
+    daysToNextPeriod: Math.max(0, settings.cycleLength - info.dayInCycle + 1),
+    cycleLength: settings.cycleLength,
+    periodLength: settings.periodLength,
+  };
 }
 
 // 获取该阶段的训练建议元数据
