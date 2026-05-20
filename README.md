@@ -11,7 +11,7 @@ HerFit 是一个面向女性健身用户的 AI-powered daily workout decision as
 - Online Demo：https://herfit-mvp.vercel.app/
 - GitHub Repository：https://github.com/youluwei1125-design/herfit-mvp
 - Current Version：V0.1 MVP
-- Status：已完成基础 MVP，并已部署至 Vercel
+- Status：已完成 MVP 并部署至 Vercel，已接入 Claude Sonnet API 实时生成训练建议
 
 ---
 
@@ -99,6 +99,8 @@ HerFit 关注的是女性健身中的一个具体决策问题：
 
 ### 4. AI-assisted MVP Development
 
+训练建议通过 Next.js API Route 调用 Claude Sonnet API 实时生成，输入为用户周期阶段、身体状态等 6 个结构化字段，输出为 JSON 格式的完整训练方案。
+
 本项目使用 ChatGPT / Codex / Cursor 辅助完成：
 
 - 产品定位梳理
@@ -117,7 +119,7 @@ HerFit 的 AI 推荐逻辑采用：
 > Rule-based Safety Filter + AI-generated Workout Recommendation  
 > 规则型安全过滤 + AI 生成式训练推荐
 
-也就是说，系统不会直接让 AI 随机生成训练内容，而是先通过规则判断用户当前状态是否适合训练、是否需要降低强度，再在安全边界内生成个性化训练建议。
+也就是说，系统不会直接让 AI 随机生成训练内容，而是先通过规则判断用户当前状态是否适合训练、是否需要降低强度，再在安全边界内生成个性化训练建议。（当前使用 Claude Sonnet API，通过 Next.js API Route 代理调用）
 
 整体流程为：
 
@@ -159,7 +161,8 @@ AI 生成训练建议
 - TypeScript
 - Tailwind CSS
 - Vite
-- Local storage / mock data
+- AI：Claude API (claude-sonnet-4-20250514)
+- 存储：localStorage（用户数据本地持久化）
 - Vercel
 
 ---
@@ -226,8 +229,7 @@ Current version:
 
 ## Current Limitations
 
-- 当前版本主要用于验证产品逻辑和交互流程，尚未接入真实大模型 API。
-- 当前训练建议主要基于预设推荐规则和 mock 数据生成。
+- 当前版本通过 Next.js API Route 代理调用 Claude Sonnet API 生成训练建议，规则型安全过滤在前端执行。
 - 当前版本暂不包含账号系统、长期云端数据存储和真实医疗级健康判断。
 - 视频入口目前仍以关键词搜索跳转为主，后续计划升级为精选视频库与结构化标签匹配。
 - HerFit 不提供医学诊断，也不能替代医生、康复师或专业教练建议。
